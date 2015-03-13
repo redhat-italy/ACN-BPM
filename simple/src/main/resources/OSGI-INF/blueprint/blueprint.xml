@@ -1,0 +1,112 @@
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:cxf="http://cxf.apache.org/blueprint/core"
+           xsi:schemaLocation="
+             http://www.osgi.org/xmlns/blueprint/v1.0.0 http://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd
+             http://cxf.apache.org/blueprint/core http://cxf.apache.org/schemas/blueprint/core.xsd
+             http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+
+  <cxf:bus>
+    <cxf:features>
+      <cxf:logging/>
+    </cxf:features>
+  </cxf:bus>
+
+  <bean id="response" class="it.redhat.accenture.jaws.simple.support.ReponseWrapper" />
+
+  <camelContext xmlns="http://camel.apache.org/schema/blueprint">
+    <route>
+      <from
+          uri="cxfrs:/services?bindingStyle=SimpleConsumer&amp;resourceClasses=it.redhat.accenture.jaws.simple.services.SimpleService"/>
+      <setProperty propertyName="operationName">
+        <simple>${header.operationName}</simple>
+      </setProperty>
+      <to uri="jaws:start"/>
+      <setExchangePattern pattern="InOnly"/>
+      <routingSlip>
+        <simple>amq:${property.operationName}</simple>
+      </routingSlip>
+      <to uri="direct:responseOK" />
+    </route>
+
+    <route>
+      <from uri="direct:responseOK" />
+      <removeHeaders pattern="*"/>
+      <setBody>
+        <constant>OK</constant>
+      </setBody>
+      <to uri="bean:response?method=buildOk" />
+    </route>
+
+    <route>
+      <from uri="amq:simple"/>
+      <setExchangePattern pattern="InOnly" />
+      <choice>
+        <when>
+          <groovy>resource:classpath:/it/redhat/accenture/jaws/simple/groovy/ConditionA.groovy</groovy>
+          <log message="Send to condition A ${in.body}" />
+          <to uri="amq:condition_a" />
+        </when>
+        <when>
+          <groovy>resource:classpath:it/redhat/accenture/jaws/simple/groovy/ConditionB.groovy</groovy>
+          <log message="Send to condition B ${in.body}" />
+          <to uri="amq:condition_b" />
+        </when>
+        <otherwise>
+          <log message="Otherwise ${in.body}" />
+          <to uri="amq:otherwise" />
+        </otherwise>
+      </choice>
+    </route>
+
+    <route>
+      <from uri="amq:otherwise"/>
+      <log message="ERROR by condition B ${in.body}" />
+      <to uri="jaws:error" />
+    </route>
+
+    <route>
+      <from uri="amq:condition_b"/>
+      <log message="COMPLETED by condition B ${in.body}" />
+      <to uri="jaws:complete" />
+    </route>
+
+    <route>
+      <from uri="amq:condition_a"/>
+      <setExchangePattern pattern="InOnly" />
+      <multicast parallelProcessing="true">
+        <to uri="direct:step1" />
+        <to uri="direct:step2" />
+        <to uri="direct:step3" />
+      </multicast>
+    </route>
+
+    <route>
+      <from uri="direct:step1" />
+      <filter>
+        <groovy>resource:classpath:/it/redhat/accenture/jaws/simple/groovy/Step1.groovy</groovy>
+        <log message="Send to Step 1 ${in.body}" />
+        <to uri="jaws:complete" />
+      </filter>
+    </route>
+
+    <route>
+      <from uri="direct:step2" />
+      <filter>
+        <groovy>resource:classpath:/it/redhat/accenture/jaws/simple/groovy/Step2.groovy</groovy>
+        <log message="Send to Step 2 ${in.body}" />
+        <to uri="jaws:complete" />
+      </filter>
+    </route>
+
+    <route>
+      <from uri="direct:step3" />
+      <filter>
+        <groovy>resource:classpath:/it/redhat/accenture/jaws/simple/groovy/Step3.groovy</groovy>
+        <log message="Send to Step 3 ${in.body}" />
+        <to uri="jaws:complete" />
+      </filter>
+    </route>
+  </camelContext>
+
+</blueprint>
